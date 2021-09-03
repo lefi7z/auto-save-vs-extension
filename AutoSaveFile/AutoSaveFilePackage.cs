@@ -9,6 +9,8 @@ using Task = System.Threading.Tasks.Task;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.IO;
+using System.Text.RegularExpressions;
 
 [assembly: InternalsVisibleTo("AutoSaveFileTests")]
 namespace AutoSaveFile
@@ -43,14 +45,11 @@ namespace AutoSaveFile
         /// <summary>
         /// AutoSaveFilePackage GUID string.
         /// </summary>
-        public const string PackageGuidString = "d520a8f3-cfd5-4ba3-a154-66b97d118c91";
+        public const string PackageGuidString = "45762a8e-f0a3-45d6-a93c-3d3a770229cf";
 
-        private TextEditorEvents _dteEditorEvents;
-        private WindowEvents _dteWindowEvents;
-        private Stack<CancellationTokenSource> _stack;
-        private Helper _helper;
+        public string PackageName => nameof(AutoSaveFilePackage);
 
-        #region Package Members
+        public OptionPageGrid Options => (OptionPageGrid)GetDialogPage(typeof(OptionPageGrid));
 
         /// <summary>
         /// Initialisation of the package; this method is called right after the package is sited, so this is the place
@@ -66,154 +65,100 @@ namespace AutoSaveFile
             // Do any Initialisation that requires the UI thread after switching to the UI thread.
             //await this.JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
 
-            _helper = new Helper();
-
-            GetLogger().LogInformation(GetPackageName(), "Initialising...");
             await base.InitializeAsync(cancellationToken, progress);
 
-            try
+            DTE dte = await GetServiceAsync(typeof(DTE)) as DTE;
+            if (dte != null)
             {
-                await BindToLocalVisualStudioEventsAsync();
-                BindToWindowEvents();
+                dte.Events.WindowEvents.WindowActivated += OnWindowActivated;
+                //dte.Events.TextEditorEvents.LineChanged += OnLineChanged;
 
-                _stack = new Stack<CancellationTokenSource>();
-
-                GetLogger().LogInformation(GetPackageName(), "Initialised.");
-            }
-            catch (Exception exception)
-            {
-                GetLogger().LogError(GetPackageName(), "Exception during initialisation", exception);
-            }
-        }
-
-        private void BindToWindowEvents()
-        {
-            System.Windows.Application.Current.Deactivated += OnDeactivated;
-            System.Windows.Application.Current.Exit += OnDeactivated;
-        }
-
-        private async Task BindToLocalVisualStudioEventsAsync()
-        {
-            var dte = (DTE)await GetServiceAsync(typeof(DTE));
-            var _dteEvents = dte.Events;
-
-            _dteEditorEvents = _dteEvents.TextEditorEvents;
-            _dteWindowEvents = _dteEvents.WindowEvents;
-
-            _dteEditorEvents.LineChanged += OnLineChanged;
-            _dteWindowEvents.WindowActivated += OnWindowActivated;
-        }
-
-        private void OnLineChanged(TextPoint startPoint, TextPoint endPoint, int Hint)
-        {
-            var changedText = GetChangedText(startPoint, endPoint);
-            if (changedText.Length != 0 && IsLastModifiedCharacterPeriod(changedText))
-            {
-                CancelPreviousSaveTask();
-                return;
+                System.Windows.Application.Current.Deactivated += OnAppDeactivated;
+                //System.Windows.Application.Current.Exit += OnDeactivated;
             }
 
-            CancelPreviousSaveTask();
-
-            var _cancellationTokenSource = new CancellationTokenSource();
-            _stack.Push(_cancellationTokenSource);
-
-            _ = Task.Run(async () =>
-                           {
-                               try
-                               {
-                                   await WaitForUserConfiguredDelayAsync();
-
-                                   if (!_cancellationTokenSource.IsCancellationRequested)
-                                   {
-                                       var dte = (DTE)await this.GetServiceAsync(typeof(DTE));
-                                       var window = dte.ActiveWindow;
-
-                                       Save(window);
-                                   }
-                               }
-                               catch (Exception exception)
-                               {
-                                   GetLogger().LogError(GetPackageName(), "Exception during line change event handling", exception);
-                               }
-                           });
+            IVsOutputWindow outWindow = GetGlobalService(typeof(SVsOutputWindow)) as IVsOutputWindow;
+            Guid guid = new Guid(PackageGuidString);
+            outWindow.CreatePane(ref guid, PackageName, fInitVisible: 1, fClearWithSolution: 1);
+            outWindow.GetPane(ref guid, out customPane);
+            //customPane.Activate();  // brings this pane into view
         }
 
-        private void OnDeactivated(object sender, System.EventArgs e)
-        {
-            try
-            {
-                var dte = (DTE)this.GetService(typeof(DTE));
-                var optionsPage = (OptionPageGrid)GetDialogPage(typeof(OptionPageGrid));
-                var saveWhenVsLosesFocus = optionsPage.ShouldSaveAllFilesWhenVSLosesFocus;
+        IVsOutputWindowPane customPane;
 
-                if (saveWhenVsLosesFocus)
+        private bool SaveMaybe(Window window)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+
+            if (window == null)
+                return false;
+
+            Document doc = window.Document;
+            if (doc == null)
+                return false;
+
+            if (doc.ReadOnly)
+            {
+                Log($"skipping read-only file {doc.FullName}");
+                return false;
+            }
+
+            foreach (string ext in Options.IgnoredFileTypes.Split(',', ';', ':'))
+            {
+                if (Options.UseRegex)
                 {
-                    dte.ExecuteCommand("File.SaveAll");
+                    if (Regex.IsMatch(doc.FullName, ext))
+                        return false;
+                }
+                else if (doc.FullName.EndsWith(ext))
+                    return false;
+            }
+
+            Log($"saving {doc.FullName}");
+            doc.Save();
+            return true;
+        }
+
+        private void Log(string msg)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+
+            customPane.OutputString(msg + "/r/n");
+        }
+
+        #region events
+
+        private void OnAppDeactivated(object sender, System.EventArgs e)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+
+            if (!Options.SaveAllFilesWhenVSLosesFocus)
+                return;
+            
+            try
+            {
+                DTE dte = GetService(typeof(DTE)) as DTE;
+                if (dte != null)
+                {
+                    for (int i = 0; i < dte.Windows.Count; i++)
+                    {
+                        Window win = dte.Windows.Item(i);
+                        SaveMaybe(win);
+                    }
                 }
             }
-            catch (Exception exception)
+            catch (Exception exc)
             {
-                GetLogger().LogError(GetPackageName(), "Exception occurred while saving on window losing focus", exception);
+                Log(exc.ToString());
             }
         }
 
         private void OnWindowActivated(Window gotFocus, Window lostFocus)
         {
-            if (lostFocus != null)
-            {
-                Save(lostFocus);
-            }
-        }
-
-        private void Save(Window window)
-        {
-            var optionsPage = (OptionPageGrid)GetDialogPage(typeof(OptionPageGrid));
-
-            if (_helper.ShouldSaveDocument(window, optionsPage))
-            {
-                window.Document?.Save();
-                window.Project?.Save();
-            }
-        }
-
-        private static string GetChangedText(TextPoint startPoint, TextPoint endPoint)
-        {
-            EditPoint editPoint = startPoint.CreateEditPoint();
-            var content = editPoint.GetText(endPoint);
-            return content;
-        }
-
-        private bool IsLastModifiedCharacterPeriod(string changedText)
-        {
-            return changedText.LastIndexOf('.') == changedText.Length - 1;
-        }
-
-        private async Task WaitForUserConfiguredDelayAsync()
-        {
-            await JoinableTaskFactory.SwitchToMainThreadAsync(DisposalToken);
-
-            var optionsPage = (OptionPageGrid)GetDialogPage(typeof(OptionPageGrid));
-            var timeDelayInSeconds = optionsPage.TimeDelay;
-
-            await Task.Delay(1000 * timeDelayInSeconds);
-        }
-
-        private void CancelPreviousSaveTask()
-        {
-            if (_stack.Any())
-            {
-                _stack.Pop().Cancel();
-            }
-        }
-
-        private string GetPackageName() => nameof(AutoSaveFilePackage);
-
-        private IVsActivityLog GetLogger()
-        {
-            return this.GetService(typeof(SVsActivityLog)) as IVsActivityLog ?? new NullLogger();
+            SaveMaybe(lostFocus);
         }
 
         #endregion
+
     }
 }

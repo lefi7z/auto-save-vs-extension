@@ -1,6 +1,8 @@
 # auto-save-vs-extension
 
-A Visual Studio extension that automatically saves the file as you're working on it.
+A Visual Studio extension that automatically saves the files you're working on.
+
+Original credit goes to `hrai/auto-save-vs-extension`.
 
 There are 3 conditions when changed file/s is saved.
 
@@ -26,3 +28,10 @@ There are 3 conditions when changed file/s is saved.
 
 - Please feel free to raise issues
 - PRs are welcome! :)
+
+### Deployment
+
+Build the solution and execute the `.vsix` file. One must uninstall
+the extension in Visual Studio first. 
+
+
