@@ -97,6 +97,9 @@ namespace AutoSaveFile
             if (doc == null)
                 return false;
 
+            if (doc.Saved)
+                return false;
+
             if (doc.ReadOnly)
             {
                 Log($"skipping read-only file {doc.FullName}");
@@ -123,7 +126,7 @@ namespace AutoSaveFile
         {
             ThreadHelper.ThrowIfNotOnUIThread();
 
-            customPane.OutputString(msg + "/r/n");
+            customPane.OutputString(msg + "\r\n");
         }
 
         #region events
@@ -132,24 +135,27 @@ namespace AutoSaveFile
         {
             ThreadHelper.ThrowIfNotOnUIThread();
 
-            if (!Options.SaveAllFilesWhenVSLosesFocus)
-                return;
-            
-            try
+            if (Options.SaveAllFilesWhenVSLosesFocus)
             {
-                DTE dte = GetService(typeof(DTE)) as DTE;
-                if (dte != null)
+                try
                 {
-                    for (int i = 0; i < dte.Windows.Count; i++)
+                    DTE dte = GetService(typeof(DTE)) as DTE;
+                    if (dte != null)
                     {
-                        Window win = dte.Windows.Item(i);
-                        SaveMaybe(win);
+                        foreach (object window in dte.Windows)
+                        {
+                            if (window is Window win)
+                                SaveMaybe(win);
+                        }
+                        // shortcut (wenn man davon ausgeht, dass alle inaktiven Fenster
+                        // durch einen lost-focus eh gespeichert worden sind):
+                        //SaveMaybe(dte.ActiveWindow);
                     }
                 }
-            }
-            catch (Exception exc)
-            {
-                Log(exc.ToString());
+                catch (Exception exc)
+                {
+                    Log(exc.ToString());
+                }
             }
         }
 
