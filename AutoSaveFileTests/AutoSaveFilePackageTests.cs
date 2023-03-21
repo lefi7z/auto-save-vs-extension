@@ -1,6 +1,6 @@
 ﻿using AutoSaveFile;
 using EnvDTE;
-using FluentAssertions;
+
 using Moq;
 using Xunit;
 
@@ -13,11 +13,16 @@ namespace AutoSaveFileTests
         {
             var window = new Mock<Window>();
             var document = new Mock<Document>();
+            var options = new Mock<OptionPageGrid>();
 
             window.Setup(win => win.Document).Returns(document.Object);
             document.Setup(doc => doc.FullName).Returns("c:\\test\\tester.cs");
-
+            options.Setup(opt => opt.IgnoredFileTypes).Returns("foo");
+            
             // test here ..
+
+            AutoSaveFilePackage.SaveMaybe(window.Object, options.Object, null);
+        
         }
 
     }

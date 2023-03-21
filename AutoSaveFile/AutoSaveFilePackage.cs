@@ -86,9 +86,11 @@ namespace AutoSaveFile
 
         IVsOutputWindowPane customPane;
 
-        private bool SaveMaybe(Window window)
+        public static bool SaveMaybe(Window window, OptionPageGrid Options, Action<string> Log = null)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
+            if (Log == null)
+                Log = (string _) => { };  // no-op
 
             if (window == null)
                 return false;
@@ -106,17 +108,23 @@ namespace AutoSaveFile
                 return false;
             }
 
-            foreach (string ext in Options.IgnoredFileTypes.Split(',', ';', ':'))
+            foreach (string ext in Options.IgnoredFileTypes
+                .Split(new char[] { ',', ';', ':'}, StringSplitOptions.RemoveEmptyEntries))
             {
                 if (Options.UseRegex)
                 {
                     if (Regex.IsMatch(doc.FullName, ext))
+                    {
+                        Log($"skipping ignored regex {doc.FullName}");
                         return false;
+                    }
                 }
                 else if (doc.FullName.EndsWith(ext))
+                {
+                    Log($"skipping ignored file-ext {doc.FullName}");
                     return false;
+                }
             }
-
             Log($"saving {doc.FullName}");
             doc.Save();
             return true;
@@ -145,7 +153,7 @@ namespace AutoSaveFile
                         foreach (object window in dte.Windows)
                         {
                             if (window is Window win)
-                                SaveMaybe(win);
+                                SaveMaybe(win, Options, Log);
                         }
                         // shortcut (wenn man davon ausgeht, dass alle inaktiven Fenster
                         // durch einen lost-focus eh gespeichert worden sind):
@@ -161,7 +169,7 @@ namespace AutoSaveFile
 
         private void OnWindowActivated(Window gotFocus, Window lostFocus)
         {
-            SaveMaybe(lostFocus);
+            SaveMaybe(lostFocus, Options, Log);
         }
 
         #endregion
