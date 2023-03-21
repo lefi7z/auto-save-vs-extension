@@ -1,16 +1,16 @@
 ﻿using System;
-using System.Runtime.InteropServices;
 using System.Threading;
-using EnvDTE;
+using Task = System.Threading.Tasks.Task;
+using System.Text.RegularExpressions;
+using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
+
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio;
-using Task = System.Threading.Tasks.Task;
-using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.CompilerServices;
-using System.IO;
-using System.Text.RegularExpressions;
+
+using EnvDTE;
+
 
 [assembly: InternalsVisibleTo("AutoSaveFileTests")]
 namespace AutoSaveFile
